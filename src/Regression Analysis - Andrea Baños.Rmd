@@ -1,0 +1,1133 @@
+---
+title: "Predicting the Spread of Dengue Fever in San Juan and Iquitos: An
+Investigative Analysis"
+author: "Andrea Baños"
+date: "2024-03-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Research question
+
+Dengue fever is an infectious disease transmitted by the Aedes aegypti mosquito,
+predominantly in areas with a tropical or subtropical climate. It has become an epidemic in more than 100 countries worldwide and manifests with hemorrhages, redness, fever, and general discomfort throughout the body (Kularatne, S. A. in 2015). In Peru and Puerto Rico, specifically in the areas of Iquitos and San Juan, which will be chosen for this study, this disease prevails practically throughout the year.
+
+The motivation for this study is that the spread of this disease is faster than researchers may realize, due to a high rate of asymptomatic individuals, international tourist travel to endemic areas, or the transportation of goods. Every year, approximately 50 million cases of dengue fever are detected worldwide. However, the issue with counting infected cases is that there will be many more due to the challenge of detecting those asymptomatic cases (Benedum, C. M., Shea, K. M., Jenkins, H. E., Kim, L. Y., and Markuzon, N. (2020)). The World Health Organization (WHO) estimates that there are approximately 2.5 billion people worldwide at risk of contagion and infection. Therefore, numerous techniques will be employed to try to predict the spread of dengue fever, in order to prevent high rates of contagion.
+
+# Load the main libraries
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(ggpubr)
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(caret)
+library(mice)
+library(cowplot)
+library(ggeffects)
+library(MASS)
+library(rpart)
+library(rpart.plot)
+library(pdp)
+library(lme4)
+library(olsrr)
+library(pROC)
+library(lmtest)
+
+```
+
+# Data source
+
+The data for this study have been collected from DrivenData, a platform that organizes online competitions among users to shed light on issues affecting a significant portion of the global population in various social scenarios. It showcases predictive models that can be incorporated to address specific problems.
+
+The variables to be used in this analysis during the period from 1990 to 2010 are:
+
+- total_cases: It contains the number of dengue cases per city, year, and weekofyear.
+
+- city: It contains the study cities, in this case, “sj” for San Juan in Puerto Rico and “iq” for Iquitos in Peru.
+
+- year: It corresponds to the year of each observation.
+
+- weekofyear: It indicates the week of the year to which each observation corresponds.
+
+- week_start_date: Date in the format yyyy-mm-dd.
+
+- station_max_temp_c: It indicates the maximum temperature, measured in Celsius degrees.
+
+- station_min_temp_c: It indicates the minimum temperature, measured in Celsius degrees.
+
+- station_avg_temp_c: It indicates the average temperature, measured in Celsius degrees.
+
+- station_precip_mm: It contains the total precipitation, measured in cubic millimeters.
+
+- station_diur_temp_rng_c: It contains the diurnal temperature range, measured in Celsius degrees.
+
+- precipitation_amt_mm: Satellite measurement of total precipitation, measured in cubic millimeters.
+
+- reanalysis_sat_precip_amt_mm: Reanalysis of the total precipitation measurement, measured in cubic millimeters.
+
+- reanalysis_dew_point_temp_k: Reanalysis of the mean dew point temperature measurement, measured in Kelvin degrees.
+
+- reanalysis_air_temp_k: Reanalysis of the mean air temperature measurement, measured in Kelvin degrees.
+
+- reanalysis_relative_humidity_percent: Reanalysis of the mean relative humidity measurement, measured in percentage.
+
+- reanalysis_specific_humidity_g_per_kg: Reanalysis of the mean specific humidity measurement, measured in grams per kilogram.
+
+- reanalysis_precip_amt_kg_per_m2: Reanalysis of the total precipitation measurement, measured in kilograms per square meter.
+
+- reanalysis_max_air_temp_k: Reanalysis of the measurement of air maximum temperature, measured in Kelvin degrees.
+
+- reanalysis_min_air_temp_k: Reanalysis of the measurement of air minimum temperature, measured in Kelvin degrees.
+
+- reanalysis_avg_temp_k: Reanalysis of the measurement of air average temperature, measured in Kelvin degrees.
+
+- reanalysis_tdtr_k: Reanalysis of the measurement of diurnal temperature range, measured in Kelvin degrees.
+
+- ndvi_se: It measures the Normalized Difference Vegetation Index, containing the pixel southeast of the city's centroid.
+
+- ndvi_sw: It measures the Normalized Difference Vegetation Index, containing the pixel southwest of the city's centroid.
+
+- ndvi_ne: It measures the Normalized Difference Vegetation Index, containing the pixel northeast of the city's centroid.
+
+- ndvi_nw: It measures the Normalized Difference Vegetation Index, containing the pixel northwest of the city's centroid.
+
+
+## Data cleaning
+
+```{r}
+features_data <- read.csv("../data/dengue_features.csv")
+total_cases <- read.csv("../data/dengue_labels.csv")
+dengue_data <- left_join(total_cases, features_data)
+
+summary(dengue_data)
+dim(dengue_data)
+
+```
+
+The dimension of this dataset (dengue_data) contains 1456 observations and 25 variables (the majority of which are numeric, except for "city" and "week_start_date", which are character).
+
+## Descriptive Analysis
+
+```{r}
+dengue_data %>% ggplot(aes(x=total_cases)) +
+  geom_density(fill="pink") +
+  xlab("Dengue Fever cases in San Juan and Iquitos") +
+  theme_minimal() # high asymmetry
+
+ggplot(dengue_data, aes(x = year, y = total_cases, colour=city, size=station_max_temp_c)) + geom_point() +  
+  labs(title="Total cases of Dengue Fever over the years affected by maximum temperature", x="Year", y="Total cases of Dengue Fever", colour="City", size= "Maximum temperature") + 
+  theme_minimal() + theme(legend.position="bottom") # Total cases depending on city, weekofyear and station_max_temp_c
+
+ggplot(dengue_data, aes(x = year, y = total_cases, colour=city, size=station_precip_mm)) + geom_point() +  
+  labs(title="Total cases of Dengue Fever over the years affected by total precipitation in milimeters", x="Year", y="Total cases of Dengue Fever", colour="City", size= "Precipitation in milimeters") + 
+  theme_minimal() + theme(legend.position="bottom") # Total cases depending on city, weekofyear and total precipitation
+
+```
+
+The total number of dengue fever cases in San Juan and Iquitos usually does not exceed 100 cases per week, but there are outliers with a high number of cases (above 100) that skew this distribution to the left. Over the years, it can be observed that dengue fever cases have been decreasing in San Juan, while they seem to have slightly increased in Peru. In this case, maximum temperature does not appear to be a relevant factor affecting the total number of dengue fever cases. However, precipitation seems to be a significant factor, as higher precipitation (represented by larger dots) correlates with an increase in the total number of cases of dengue fever, particularly in Iquitos. This could be attributed to the possibility of it being an area with high precipitation, unlike San Juan, where the total precipitation remains relatively constant over the years.
+
+## Correlation between the dependent variable and predictors, and among the predictors
+
+```{r fig.width=9}
+ggcorr(dengue_data, label = T)
+
+```
+
+The predictors most correlated with the dependent variable are reanalysis_air_temp_k, reanalysis_min_air_temp_k, and station_min_temp_c positively, and negatively, reanalysis_tdtr_k. It can also be observed that some predictors are highly correlated with each other.
+
+```{r}
+# With the summary command, we have seen some asymmetries in the following variables
+bxp<-ggplot(dengue_data,mapping=aes(x=precipitation_amt_mm))+geom_histogram(bins=15,fill="orange")
+dp<-ggplot(dengue_data,mapping=aes(x=reanalysis_precip_amt_kg_per_m2))+geom_histogram(bins=15,fill="lightblue")
+db<-ggplot(dengue_data,mapping=aes(x=reanalysis_sat_precip_amt_mm))+geom_histogram(bins=15,fill="yellow")
+ds<-ggplot(dengue_data,mapping=aes(x=station_precip_mm))+geom_histogram(bins=15,fill="green")
+
+ggarrange(bxp,dp,db,ds,
+          ncol = 2, nrow = 2) # They are skewed to the left
+
+```
+
+# Feature engineering
+
+```{r}
+train_feature_data <- dengue_data %>% 
+  mutate(
+  lprecip_amt_mm = log(precipitation_amt_mm),
+  lrean_precip_amt_kg_per_m2 = log(reanalysis_precip_amt_kg_per_m2),
+  lrean_sat_precip_amt_mm = log(reanalysis_sat_precip_amt_mm),
+  lstation_precip_mm = log(station_precip_mm),
+  diurnal_temp_range = station_max_temp_c - station_min_temp_c,
+  ndvi_mean = rowMeans(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw),
+                       na.rm = TRUE),
+    ndvi_median = apply(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw), 1, median,
+                        na.rm = TRUE),
+    ndvi_sd = apply(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw), 1, sd,
+                    na.rm = TRUE),
+  accumulated_precipitation = rowSums(dplyr::select(., station_precip_mm, 
+                                             precipitation_amt_mm,
+                                             reanalysis_sat_precip_amt_mm),
+                                      na.rm = TRUE),
+  avg_daily_temp = (station_max_temp_c + station_min_temp_c +
+                                 station_avg_temp_c)/3,
+  precip_ratio = station_precip_mm/weekofyear,
+  humid_ratio = reanalysis_relative_humidity_percent/
+    reanalysis_specific_humidity_g_per_kg,
+  all_temp_interact = station_max_temp_c * station_min_temp_c *
+    station_avg_temp_c,
+  avg_temp_precip_interact = station_avg_temp_c * station_precip_mm,
+  ndvi_temp_interact = (ndvi_se + ndvi_sw + ndvi_ne + ndvi_nw) *
+    station_avg_temp_c,
+  ndvi_precip_interact = (ndvi_se + ndvi_sw + ndvi_ne + ndvi_nw) *
+    station_precip_mm,
+  reanalysis_dew_point_temp_c = reanalysis_dew_point_temp_k - 273.15,
+  reanalysis_air_temp_c = reanalysis_air_temp_k - 273.15,
+  reanalysis_max_air_temp_c = reanalysis_max_air_temp_k - 273.15,
+  reanalysis_min_air_temp_c = reanalysis_min_air_temp_k - 273.15,
+  reanalysis_avg_temp_c = reanalysis_avg_temp_k - 273.15,
+  reanalysis_tdtr_c = reanalysis_tdtr_k - 273.15,
+  week_start_date = as.Date(week_start_date),
+  month = format(week_start_date, "%m"),
+  day_of_week = case_when(
+     weekdays(week_start_date) == "lunes" ~ "Monday",
+     weekdays(week_start_date) == "martes" ~ "Tuesday",
+     weekdays(week_start_date) == "miércoles" ~ "Wednesday",
+     weekdays(week_start_date) == "jueves" ~ "Thursday",
+     weekdays(week_start_date) == "viernes" ~ "Friday",
+     weekdays(week_start_date) == "sábado" ~ "Saturday",
+     weekdays(week_start_date) == "domingo" ~ "Sunday"
+    ),
+  season = case_when(
+     month %in% c("12", "01", "02") ~ "Winter",
+     month %in% c("03", "04", "05") ~ "Spring",
+     month %in% c("06", "07", "08") ~ "Summer",
+     TRUE ~ "Autumn"
+    )
+)
+
+train_feature_data <- train_feature_data %>% 
+  dplyr::select(-c(reanalysis_dew_point_temp_k, reanalysis_air_temp_k,
+            reanalysis_max_air_temp_k, reanalysis_min_air_temp_k,
+            reanalysis_avg_temp_k, reanalysis_tdtr_k))
+
+train_feature_data[train_feature_data == -Inf] <- 0
+
+sum(is.na(train_feature_data)) # 1336 NA's
+
+colSums(is.na(train_feature_data))
+
+```
+
+## Country-level variable aggregation
+
+```{r}
+severe_cases <- read_xlsx("../other/Severe dengue cases, suspects and death.xlsx")
+severe_cases <- severe_cases %>% 
+  rename(variables = ...2) %>% 
+  rename(year = ...1) %>% 
+  filter(variables != "Casos Sospechosos") %>% 
+  dplyr::select(-Total)
+
+severe_cases <- severe_cases %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+severe_cases <- severe_cases %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+severe_cases <- severe_cases %>% 
+  rename(`Total Casos Dengue` = `Total Casos`)
+
+
+serotypes <- read_xlsx("../other/Serotypes.xlsx")
+serotypes <- serotypes %>% 
+  rename(country = Pais) %>% 
+  rename(year = Año) %>% 
+  rename(serotype = ...3) %>% 
+  filter(year < 2014 | year > 2024)  
+
+
+lethality <- read_xlsx("../other/Lethality.xlsx")
+lethality <- lethality %>% 
+  rename(variables = ...2) %>% 
+  rename(year = ...1)
+
+lethality <- lethality %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+lethality <- lethality %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+
+incidence <- read_xlsx("../other/Incidence.xlsx")
+
+incidence <- incidence %>% 
+  rename(variables = ...2)
+
+incidence <- incidence %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+incidence <- incidence %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+incidence <- incidence %>% 
+  rename(`Total Casos Dengue` = `Total de Casos de Dengue`)
+
+# Joining all the country-level variables
+aggregated_variables <- left_join(lethality, incidence, by = c("country", "year", "Total Casos Dengue"))
+aggregated_variables <- left_join(aggregated_variables, severe_cases, by = c("country", "year"))
+aggregated_variables <- aggregated_variables %>% 
+  dplyr::select(-`Total Casos Dengue.x`) %>% 
+  rename(`Total Casos Dengue` = `Total Casos Dengue.y`) %>% 
+  dplyr::select(-Muertes.y) %>% 
+  rename(Muertes = Muertes.x)
+
+aggregated_variables <- left_join(aggregated_variables, serotypes, by = c("country", "year"))
+
+aggregated_variables <- aggregated_variables %>% 
+  rename(deaths = Muertes) %>% 
+  rename(lethality = `Letalidad (Porcentaje)`) %>% 
+  rename(population = Población) %>% 
+  rename(incidence = `Incidencia por 100,000 hab.`) %>% 
+  rename(severe_cases = `Dengue Grave`) %>% 
+  rename(total_dengue_cases = `Total Casos Dengue`)
+
+# Creating the final data frame
+train_feature_data <- train_feature_data %>%
+  mutate(country = ifelse(city == "sj", "Puerto Rico", ifelse(city == "iq", "Perú", NA)), .before = city)
+
+dengue <- left_join(train_feature_data, aggregated_variables, by = c("country", "year"))
+
+```
+
+## Hierarchical model
+
+```{r}
+hierarchical_model <- lmer(total_cases ~ . + (1 | country), data = dengue)
+
+summary(hierarchical_model)
+
+```
+
+The random effects of this model are grouped into 2 countries of the Central and South America, with a variance of 53.57 and a standard deviation of 7.319, indicating that there is significant variability between countries. Therefore, the country effect on the response variable “total_cases” should be taken into account for the analysis. Moreover, the remaining predictor variables that are fixed effects and contribute to raising the infection rate have a positive coefficient.
+
+On the other hand, predictor variables that do not contribute to increase the infection rate have a negative coefficient.
+
+## Multiple Imputation of NA's
+
+```{r}
+colSums(is.na(dengue)) # 246 NA's in ndvi_temp_interact feature
+
+data_imputed <- data.frame(
+  city = dengue$city,
+  original = dengue$ndvi_temp_interact,
+  imputed_median = replace(dengue$ndvi_temp_interact,
+                           is.na(dengue$ndvi_temp_interact),
+                           median(dengue$ndvi_temp_interact, na.rm = TRUE)),
+  imputed_normboot = complete(mice(dengue, m=10, method = "norm.boot",
+                                   seed=123))$ndvi_temp_interact,
+  imputed_pmm = complete(mice(dengue, m=10, method = "pmm",
+                              seed=123))$ndvi_temp_interact,
+  imputed_rf = complete(mice(dengue, m=10, method = "rf",
+                             seed=123))$ndvi_temp_interact
+  )
+
+variables <- c("original", "imputed_median", "imputed_normboot", "imputed_pmm", "imputed_rf")
+titles <- c("Distribution of the ndvi_temp_interact variable", "Median-imputed Distribution", "Norm Boot-imputed Distribution", "PMM-imputed Distribution", "Random Forest-imputed Distribution")
+colors <- c("skyblue", "orchid", "aquamarine", "coral", "hotpink")
+
+# An empty plot list for the new plots
+plots <- list()
+
+# Loop through variables to create plots for each imputation method
+for (i in 1:length(variables)) {
+  plots[[i]] <- ggplot(data_imputed, aes_string(x = variables[i])) +
+    geom_histogram(binwidth = 1, fill = colors[i], color = paste0(colors[i], "3")) + 
+    ggtitle(titles[i]) +
+    theme_classic()
+}
+
+plot_grid(plotlist = plots, nrow = 3, ncol = 2)
+
+init = mice(dengue)
+meth = init$method
+
+meth[c("total_cases")]="" 
+
+# It's more closer the norm boot imputation to the most NA's in the original variable but it has a lot of NA's. Therefore, it will be used Random Forest imputation:
+
+meth[c("ndvi_ne", "ndvi_nw", "ndvi_se", "ndvi_sw", "precipitation_amt_mm", "reanalysis_precip_amt_kg_per_m2", "reanalysis_relative_humidity_percent", "reanalysis_sat_precip_amt_mm", "reanalysis_specific_humidity_g_per_kg", "station_avg_temp_c", "station_diur_temp_rng_c", "station_max_temp_c", "station_min_temp_c", "station_precip_mm", "diurnal_temp_range", "ndvi_mean", "ndvi_median", "ndvi_sd", "avg_daily_temp", "precip_ratio", "humid_ratio", "all_temp_interact", "avg_temp_precip_interact", "ndvi_temp_interact", "ndvi_precip_interact", "reanalysis_dew_point_temp_c", "reanalysis_air_temp_c", "reanalysis_max_air_temp_c", "reanalysis_min_air_temp_c", "reanalysis_avg_temp_c", "reanalysis_tdtr_c", "serotype")]="rf"
+
+imputed_rf = mice(dengue, method=meth, m=10, seed=123)
+
+summary(imputed_rf)
+
+dengue <- complete(imputed_rf)
+
+```
+
+# Feature selection
+
+```{r}
+# Due to the presence of NA's in serotype feature
+sum(is.na(dengue)) # 256 NA's
+colSums(is.na(dengue)) # 243 NA's in serotype and 13 NA's in reanalysis_sat_precip_amt_mm feature
+
+dengue <- na.omit(dengue)
+dengue <- dengue %>% dplyr::select(-total_dengue_cases)
+
+dengue <- dengue %>%  
+  mutate(city_num = case_when(
+    city == "sj" ~ 1,
+    city == "iq" ~ 0
+  ))
+  
+dengue <- dengue %>%  
+  mutate(country_num = case_when(
+    country == "Puerto Rico" ~ 1,
+    country == "Perú" ~ 0
+  ))
+
+dengue <- dengue %>%  
+  mutate(day_of_week_num = case_when(
+    day_of_week == "Monday" ~ 1,
+    day_of_week == "Tuesday" ~ 2,
+    day_of_week == "Wednesday" ~ 3,
+    day_of_week == "Thursday" ~ 4,
+    day_of_week == "Friday" ~ 5,
+    day_of_week == "Saturday" ~ 6,
+    day_of_week == "Sunday" ~ 7,
+  ))
+
+dengue <- dengue %>%  
+  mutate(season_num = case_when(
+    season == "Spring" ~ 1,
+    season == "Summer" ~ 2,
+    season == "Autumn" ~ 3,
+    season == "Winter" ~ 4
+  ))
+
+numeric_cols <- dengue[, sapply(dengue, is.numeric) & names(dengue) != "total_cases"]
+
+x <- scale(numeric_cols)
+x <- x[, -findCorrelation(cor(x), .85)] # This technique only takes into account numeric variables
+x <- as.data.frame(x, stringsAsFactors = TRUE)
+
+set.seed(1234)
+rfe_results <- rfe(x, dengue$total_cases,
+                 sizes = c(2:10, 15, 20, 25, 30, 35, 40, 43),
+                 rfeControl = rfeControl(functions = lmFuncs, number = 200))
+rfe_results
+
+optimal_features <- rfe_results$optsize
+best_features <- predictors(rfe_results, optimal_features)
+best_features
+
+```
+
+Comentar las 9 features seleccionadas.
+
+# Regression - Interpretation
+
+Henceforth, we will revert to using the original numerical variable to predict the total number of dengue fever cases in San Juan and Iquitos.
+
+## Data splitting
+
+```{r}
+set.seed(1234)
+
+ind_train <- createDataPartition(dengue$total_cases, p = 0.75, list = FALSE)
+training <- dengue[ ind_train,]
+testing <- dengue[-ind_train,]
+nrow(training) # 905 observations
+nrow(testing) # 300 observations
+
+```
+
+## Descriptive Analysis
+
+As observed in the initial descriptive section of this study, the dependent variable "total_cases" exhibits a pronounced asymmetric distribution skewed to the left. Consequently, a logarithmic scale will be employed to address this issue and achieve better data balance, thereby mitigating the influence of outliers.
+
+```{r}
+training %>% ggplot(aes(x=total_cases)) + geom_density(fill="green") + scale_x_log10() + theme_minimal()
+
+summary(training)
+
+```
+
+Since there are no negative infection cases, we will not encounter any NA's when transforming the dependent variable to logarithms. However, this logarithmic transformation generates -Inf values in total_cases because there are weeks of the year where the total number of dengue fever cases has been recorded as 0, so we will not use the logarithmic transformation.
+
+## Multiple Linear Regression Model
+
+This model aims to find the linear relationship between the dependent variable "high_infection" and the rest of the independent variables, assuming that "high_infection" is a linear combination of the independent variables.
+
+```{r}
+training <- training %>% 
+  dplyr::select(-week_start_date)
+
+lin.model <- lm(total_cases ~ ., data=training)
+summary(lin.model)
+
+lin_model <- lm(total_cases ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, data=training)
+summary(lin_model)
+
+```
+
+Regarding the global significance, although the model's F-statistic is large at 15.27, indicating its significance, this model exhibits a high residual standard error of 17.78 and a moderate R^2 of 0.5617, suggesting that it is a good model. Moreover, most coefficients of the model are significant.
+
+Predictions:
+
+```{r}
+pr.multiple = exp(predict(lin.model, newdata=testing))
+cor(testing$total_cases, pr.multiple)^2
+
+pr.multiple = exp(predict(lin_model, newdata=testing))
+cor(testing$total_cases, pr.multiple)^2
+
+```
+
+As observed, a multiple linear regression model would not be optimal for predicting the total number of dengue fever cases. There is barely any correlation between the actual values of "total_cases" and the predictions of the linear model. Furthermore, as we saw in the previous chapter, most of our predictor variables behave non-linearly.
+
+```{r}
+shapiro.test(lin_model$residuals)
+
+```
+
+## Model Selection
+
+```{r}
+model = total_cases ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num
+
+linFit <- lm(model, data=training)
+
+ols_step_best_subset(linFit) 
+
+```
+
+But we need more practical methods when dimension ($p/n$) is high 
+
+```{r}
+ols_step_forward_p(linFit) # forward based on p-value
+plot(ols_step_forward_p(linFit)) # 6 variables with 8155.238 of Akaike criterion
+
+modelf = total_cases ~ station_min_temp_c + severe_cases + season_num + reanalysis_relative_humidity_percent + reanalysis_dew_point_temp_c + reanalysis_avg_temp_c
+
+```
+
+```{r}
+ols_step_forward_aic(linFit) # forward based on AIC -> the same as above
+
+```
+
+```{r}
+ols_step_backward_aic(linFit) # backward AIC
+# 7 variables and 8155.530 of Akaike criterion
+
+models = total_cases ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + severe_cases + all_temp_interact + season_num
+
+```
+
+```{r}
+ols_step_both_aic(linFit) # stepwise AIC
+# 5 variables and 8194.813 of Akaike criterion
+
+modelff = total_cases ~ severe_cases + season_num + reanalysis_relative_humidity_percent + reanalysis_dew_point_temp_c + reanalysis_avg_temp_c
+
+```
+
+This model with 6 variables seems reasonable and explains well the total cases of dengue variability
+
+```{r}
+linFit <- lm(total_cases ~ station_min_temp_c + severe_cases + season_num + reanalysis_relative_humidity_percent + reanalysis_dew_point_temp_c + reanalysis_avg_temp_c, data=training)
+
+summary(linFit)
+
+```
+
+Most of the variables are significant, except for "station_min_temp_c". The residual standard error is 21.8 and the R^2 is 0.2905, indicating a moderate explainability between the predictors and the dependent variable (total_cases).
+
+```{r}
+predictions <- exp(predict(linFit, newdata=testing))
+cor(testing$total_cases, predictions)^2
+RMSE <- sqrt(mean((predictions - testing$total_cases)^2))
+RMSE
+
+```
+
+The model's predictions only explain approximately 2.4% of the variability in the total_cases variable. Therefore, the model is not fitting the data well and is not a good predictor of total_cases. Additionally, the RMSE is very high, suggesting that the model's predictions are far from the actual values of total_cases.
+
+## A Benchmark
+
+```{r}
+benchFit <- lm(total_cases ~ 1, data=training)
+predictions <- predict(benchFit, newdata=testing)
+cor(testing$total_cases, predictions)^2
+RMSE <- sqrt(mean((predictions - testing$total_cases)^2))
+RMSE
+
+```
+
+## Statistical Learning tools
+
+Control function:
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 1)
+
+```
+
+Creation of a data frame with all the predictors:
+
+```{r}
+test_results <- data.frame(total_cases = testing$total_cases)
+
+```
+
+### Linear regression
+
+Train
+
+```{r}
+lm_tune <- train(models, data = training, 
+                 method = "lm", 
+                 preProc=c('scale', 'center'),
+                 trControl = ctrl)
+lm_tune
+
+```
+
+Prediction
+
+```{r}
+test_results$lm <- predict(lm_tune, testing)
+postResample(pred = test_results$lm,  obs = test_results$total_cases)
+
+```
+
+The R-squared value tends to be slightly lower when predicting, but this is normal and it is not significantly lower. Additionally, our most important metric for comparing models is the mean average error (MAE), which increases slightly when making predictions.
+
+Visualization
+
+```{r}
+qplot(test_results$lm, test_results$total_cases) + 
+  labs(title="Linear Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  lims(x = c(0, 100), y = c(0, 100)) +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+
+```
+
+Some small bias
+
+### Overfitted linear regression
+
+Train
+
+```{r}
+alm_tune <- train(modelff, data = training, 
+                  method = "lm", 
+                  preProc=c('scale', 'center'),
+                  trControl = ctrl)
+alm_tune
+
+```
+
+Prediction
+
+```{r}
+test_results$alm <- predict(alm_tune, testing)
+postResample(pred = test_results$alm,  obs = test_results$total_cases)
+
+```
+
+Visualization
+
+```{r}
+qplot(test_results$alm, test_results$total_cases) + 
+  labs(title="Linear Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  lims(x = c(0, 100), y = c(0, 100)) +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+
+```
+
+Some bias
+
+### Forward regression
+
+Train
+
+```{r}
+for_tune <- train(modelf, data = training, 
+                  method = "leapForward", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 1:6),
+                  trControl = ctrl)
+
+for_tune
+plot(for_tune)
+
+```
+
+Six variables have been selected in this forward selection model due to the lower RMSE value of 21.73739.
+
+```{r}
+coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+
+```
+
+Variables selected above.
+
+Prediction
+
+```{r}
+test_results$frw <- predict(for_tune, testing)
+postResample(pred = test_results$frw,  obs = test_results$total_cases)
+
+```
+
+Visualization
+
+```{r}
+qplot(test_results$frw, test_results$total_cases) + 
+  labs(title="Forward Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  lims(x = c(0, 100), y = c(0, 100)) +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+
+```
+
+Some bias, very similar to lm
+
+### Backward regression
+
+Train
+
+```{r}
+back_tune <- train(models, data = training, 
+                   method = "leapBackward", 
+                   preProc=c('scale', 'center'),
+                   tuneGrid = expand.grid(nvmax = 1:7),
+                   trControl = ctrl)
+back_tune # Number of maximum variables = 5
+plot(back_tune)
+
+```
+
+The number of maximum variables is 5 with a RMSE of 21.58417.
+
+```{r}
+coef(back_tune$finalModel, back_tune$bestTune$nvmax)
+
+```
+
+Variables selected above.
+
+Prediction
+
+```{r}
+test_results$bw <- predict(back_tune, testing)
+postResample(pred = test_results$bw,  obs = test_results$total_cases)
+
+```
+
+Visualization
+
+```{r}
+qplot(test_results$bw, test_results$total_cases) + 
+  labs(title="Backward Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  lims(x = c(0, 100), y = c(0, 100)) +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+
+```
+
+Some bias, very similar to lm.
+
+### Stepwise regression
+
+```{r}
+step_tune <- train(modelff, data = training, 
+                   method = "leapSeq", 
+                   preProc=c('scale', 'center'),
+                   tuneGrid = expand.grid(nvmax = 1:5),
+                   trControl = ctrl)
+step_tune
+plot(step_tune)
+
+# Variables selected
+coef(step_tune$finalModel, step_tune$bestTune$nvmax)
+
+test_results$seq <- predict(step_tune, testing)
+postResample(pred = test_results$seq,  obs = test_results$total_cases)
+
+```
+
+The number of maximum variables is 5 with a RMSE of 21.69111.
+
+### Ridge regression
+
+We need to select a greed for the lambda hyper-parameter
+
+```{r}
+# the grid for lambda
+ridge_grid <- expand.grid(lambda = seq(0, .1, length = 100))
+
+# train
+ridge_tune <- train(modelf, data = training,
+                    method='ridge',
+                    preProc=c('scale','center'),
+                    tuneGrid = ridge_grid,
+                    trControl=ctrl)
+ridge_tune
+plot(ridge_tune)
+
+# the best tune
+ridge_tune$bestTune
+
+# prediction
+test_results$ridge <- predict(ridge_tune, testing)
+
+postResample(pred = test_results$ridge,  obs = test_results$total_cases)
+
+```
+
+Lambda of 0.001010101. Rsquared and MAE similar to the previous models.
+
+### The Lasso
+
+We need to select a greed for the lambda hyper-parameter (called fraction in this case)
+
+```{r}
+lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
+
+lasso_tune <- train(modelf, data = training,
+                    method='lasso',
+                    preProc=c('scale','center'),
+                    tuneGrid = lasso_grid,
+                    trControl=ctrl)
+lasso_tune
+plot(lasso_tune)
+
+lasso_tune$bestTune
+
+test_results$lasso <- predict(lasso_tune, testing)
+postResample(pred = test_results$lasso,  obs = test_results$total_cases)
+
+```
+
+Fraction of 0.98. Rsquared and MAE similar to the previous models.
+
+### Elastic Net
+
+```{r}
+elastic_grid = expand.grid(alpha = seq(0, .2, 0.01), lambda = seq(0, .1, 0.01))
+
+glmnet_tune <- train(modelf, data = training,
+                     method='glmnet',
+                     preProc=c('scale','center'),
+                     tuneGrid = elastic_grid,
+                     trControl=ctrl)
+
+glmnet_tune
+plot(glmnet_tune) # 3 dimensional plot in many lines, first parameter in the x-axis and the second parameter in many colors (for example, yellow line is one parameter)
+glmnet_tune$bestTune
+
+test_results$glmnet <- predict(glmnet_tune, testing)
+
+postResample(pred = test_results$glmnet, obs = test_results$total_cases)
+# Similar R^2 to Lasso
+
+```
+
+Alpha of 0.08 and lambda of 0.01. Rsquared and MAE similar to the previous models.
+
+# Regression - Predictive Analysis
+
+## Machine Learning tools
+
+Control function:
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 1)
+
+```
+
+### k-Nearest Neighbors
+
+```{r}
+knn_tune <- train(modelf, 
+                  data = training,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(
+                    kmax=c(1,2,3,4,5,6,7,8,9, 10, 15, 20, 25),distance=2,kernel='optimal'),
+                  trControl = ctrl)
+
+knn_tune
+plot(knn_tune)
+
+test_results$knn <- predict(knn_tune, testing)
+
+postResample(pred = test_results$knn,  obs = test_results$total_cases)
+
+```
+
+This k-Nearest Neighbors model suggests that we would need a maximum number of neighbors of 15, with a distance of 2. The R^2 is quite high, 0.6256356, with a Mean Absolute Error of 10.2743989. Therefore, it is a good model for predicting the total number of dengue fever cases.
+
+```{r}
+n_model = total_cases ~ country + city + year + weekofyear + ndvi_ne + ndvi_nw + ndvi_se + ndvi_sw + precipitation_amt_mm + reanalysis_precip_amt_kg_per_m2 + reanalysis_relative_humidity_percent + reanalysis_sat_precip_amt_mm + reanalysis_specific_humidity_g_per_kg + station_avg_temp_c + station_diur_temp_rng_c + station_max_temp_c + station_min_temp_c + station_precip_mm + lprecip_amt_mm + lrean_precip_amt_kg_per_m2 + lrean_sat_precip_amt_mm + lstation_precip_mm + diurnal_temp_range + ndvi_mean + ndvi_median + ndvi_sd + accumulated_precipitation + avg_daily_temp + precip_ratio + humid_ratio + all_temp_interact + avg_temp_precip_interact + ndvi_temp_interact + ndvi_precip_interact + reanalysis_dew_point_temp_c + reanalysis_air_temp_c + reanalysis_max_air_temp_c + reanalysis_min_air_temp_c + reanalysis_avg_temp_c + reanalysis_tdtr_c + month + day_of_week + season + deaths + lethality + population + incidence + severe_cases + serotype + city_num + country_num + day_of_week_num + season_num
+
+knn_tune <- train(n_model, 
+                  data = training,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(
+                    kmax=c(1,2,3,4,5,6,7,8,9, 10, 15, 20, 25),distance=2,kernel='optimal'),
+                  trControl = ctrl)
+
+knn_tune
+plot(knn_tune)
+
+test_results$knn <- predict(knn_tune, testing)
+
+postResample(pred = test_results$knn,  obs = test_results$total_cases)
+
+```
+
+This k-Nearest Neighbors model, including all the variables, suggests that we would need a maximum number of neighbors of 3, with a distance of 2. The R^2 is quite high, 0.7729088, with a Mean Absolute Error of 6.7451014. Therefore, it is a good model for predicting the total number of dengue fever cases.
+
+### Random Forest
+
+```{r}
+rf_tune <- train(modelf, 
+                 data = training,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 100,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7,9,11,13,15)),
+                 importance = TRUE)
+
+rf_tune
+plot(rf_tune)
+
+test_results$rf <- predict(rf_tune, testing)
+
+postResample(pred = test_results$rf,  obs = test_results$total_cases)
+
+```
+
+Similarly, random forest is not a good model for approximating the total number of dengue fever cases in San Juan and Iquitos. We have very high R^2 of 0.5785919 and MAE of 10.9676657.
+
+```{r}
+rf_tune <- train(n_model, 
+                 data = training,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 100,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7,9,11,13,15)),
+                 importance = TRUE)
+
+rf_tune
+plot(rf_tune)
+
+test_results$rf <- predict(rf_tune, testing)
+
+postResample(pred = test_results$rf,  obs = test_results$total_cases)
+
+```
+
+This Random Forest model, including all the variables, suggests that we would need a number of predictors randomly selected at each split of a tree in the forest is 13, with a distance of 2. The R^2 is quite high, 0.7002872, with a Mean Absolute Error of 8.5703610. Therefore, it is a good model for predicting the total number of dengue fever cases.
+
+Variable importance and marginal contribution:
+
+```{r fig.height=14, fig.width=9}
+plot(varImp(rf_tune, scale = F), scales = list(y = list(cex = .95)))
+
+partial(rf_tune, pred.var = "weekofyear", plot = TRUE, rug = TRUE)
+partial(rf_tune, pred.var = "season_num", plot = TRUE, rug = TRUE)
+partial(rf_tune, pred.var = "severe_cases", plot = TRUE, rug = TRUE)
+
+```
+
+The importance of variables in this model would be "weekofyear", "season_num" and "severe_cases", contributing the most to the prediction. Regarding the marginal effect of the variable "weekofyear" on predicting the total number of dengue fever cases, it is quite high for the early weeks of the year, from 0 to 10, then remains relatively constant with a lower contribution from 10 to 30, and during the last weeks of the year, from 30 to 50, the marginal effect of the week of the year on predicting "total_cases" is very large. In other words, as the weeks increase in the last part of the year, the count of dengue cases will be higher. However, all this information will be of little relevance as Random Forest is not a good model for predicting the numeric variable "total_cases". -> Modificar
+
+### Gradient Boosting
+
+```{r fig.height=28, fig.width=9}
+xgb_tune <- train(n_model, 
+                  data = training,
+                  method = "xgbTree",
+                  preProc=c('scale','center'),
+                  objective="reg:squarederror",
+                  trControl = ctrl,
+                  tuneGrid = expand.grid(nrounds = c(500,1000), max_depth = c(5,6,7), eta = c(0.01, 0.1, 1),
+                                         gamma = c(1, 2, 3), colsample_bytree = c(1, 2),
+                                         min_child_weight = c(1), subsample = c(0.2,0.5,0.8))) # Many hyperparameters -> 7, nrounds, max_depth, eta, gamma, colsample_bytree, min_child_weight and subsample
+# 5x5x...= 5^7x5 las veces que entrena el gradient boosting
+
+test_results$xgb <- predict(xgb_tune, testing)
+
+postResample(pred = test_results$xgb,  obs = test_results$total_cases)
+
+plot(varImp(xgb_tune, scale = F), scales = list(y = list(cex = .95)))
+
+partial(xgb_tune, pred.var = "population", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "humid_ratio", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "weekofyear", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "year", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "season_num", plot = TRUE, rug = TRUE)
+
+```
+
+The R^2 is 0.7989788 and the MAE is 7.5086058. Therefore, it is the best model to predict the total cases of dengue in San Juan and Iquitos. Moreover, the variable importance are "population", "humid_ratio", "weekofyear", "year" and "season_num".
+
+### Neural Networks
+
+This machine learning model is composed of a network of neurons organized in layers, where each neuron is connected to neurons in the next layer through various connections. Information is propagated from the input layer to the output layer, where the prediction is made.
+
+```{r}
+#nn_model = total_cases ~ year + weekofyear + ndvi_ne + ndvi_nw + ndvi_se + ndvi_sw + precipitation_amt_mm + reanalysis_precip_amt_kg_per_m2 + reanalysis_relative_humidity_percent + reanalysis_sat_precip_amt_mm + reanalysis_specific_humidity_g_per_kg + station_avg_temp_c + station_diur_temp_rng_c + station_max_temp_c + station_min_temp_c + station_precip_mm + lprecip_amt_mm + lrean_precip_amt_kg_per_m2 + lrean_sat_precip_amt_mm + lstation_precip_mm + diurnal_temp_range + ndvi_mean + ndvi_median + ndvi_sd + accumulated_precipitation + avg_daily_temp + precip_ratio + humid_ratio + all_temp_interact + avg_temp_precip_interact + ndvi_temp_interact + ndvi_precip_interact + reanalysis_dew_point_temp_c + reanalysis_air_temp_c + reanalysis_max_air_temp_c + reanalysis_min_air_temp_c + reanalysis_avg_temp_c + reanalysis_tdtr_c + incidence + severe_cases + city_num + country_num + day_of_week_num + season_num
+
+#nn_tune <- train(nn_model, 
+                 #data = training,
+                 #method = "neuralnet",
+                 #preProc=c('scale','center'),
+                 #trControl = ctrl,
+                 #tuneGrid = expand.grid(layer1 = c(4, 2),
+                                        #layer2 = c(2, 1, 0),
+                                        #layer3 = c(0)))
+
+#test_results$nn <- predict(nn_tune, testing)
+
+#postResample(pred = test_results$nn,  obs = test_results$total_cases)
+
+#plot(varImp(nn_tune, scale = F), scales = list(y = list(cex = .95)))
+
+#partial(nn_tune, pred.var = "year", plot = TRUE, rug = TRUE)
+
+```
+
+The Neural Networks model is not a good choice; we would need millions of individuals to accurately predict the total number of dengue fever cases in San Juan and Iquitos.
+
+Aviso: Algorithm did not converge in 1 of 1 repetition(s) within the stepmax.
+Aviso: predictions failed for Fold5.Rep1: layer1=2, layer2=0, layer3=0 Error in cbind(1, pred) %*% weights[[num_hidden_layers + 1]] : 
+  requiere argumentos numéricos/complejos de tipo matriz/vector
+
+Aviso en nominalTrainWorkflow(x = x, y = y, wts = weights, info = trainInfo,  :
+  There were missing values in resampled performance measures.
+Something is wrong; all the RMSE metric values are missing:
+      RMSE        Rsquared        MAE     
+ Min.   : NA   Min.   : NA   Min.   : NA  
+ 1st Qu.: NA   1st Qu.: NA   1st Qu.: NA  
+ Median : NA   Median : NA   Median : NA  
+ Mean   :NaN   Mean   :NaN   Mean   :NaN  
+ 3rd Qu.: NA   3rd Qu.: NA   3rd Qu.: NA  
+ Max.   : NA   Max.   : NA   Max.   : NA  
+ NA's   :6     NA's   :6     NA's   :6    
+Error: Stopping
+
+### Ensemble
+
+Now, we will build a machine learning model taking into account the other models analyzed. First, we will obtain the mean absolute error for the previous models:
+
+```{r}
+apply(test_results[-1], 2, function(x) mean(abs(x - test_results$total_cases)))
+# This model, like gradient boosting, is often the winner in competitions. Perhaps it performs better because it's more comprehensive
+
+```
+
+The k-Nearest Neighbors model has a MAE of 6.745, the Random Forest model has a MAE of 8.591, and the XGBoost model has a MAE of 7.1634.
+
+Combining the results of the previous models, we get:
+
+```{r}
+test_results$comb = (test_results$knn + test_results$rf + test_results$xgb)/3
+
+postResample(pred = test_results$comb,  obs = test_results$total_cases)
+
+```
+
+It seems a good choice, the R-squared is 0.8044 higher than the previous models, and the Mean Absolute Error (MAE) is 6.6959 lower than the previous cases.
+
+### Prediction Intervals: conformal prediction
+
+```{r}
+yhat = exp(test_results$comb)
+y = exp(test_results$total_cases)
+error = y-yhat
+hist(error, col="skyblue")
+
+error_data <- data.frame(index = 1:length(error), value = error)
+
+ggplot(error_data, aes(x = index, y = value)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  scale_y_log10() +
+  labs(title = "Distribution of Errors", x = "Index", y = "Value (log scale)") +
+  theme_minimal()
+
+```
+
+As observed, the errors are far from symmetric; in fact, they are skewed to the left, just like our dependent variable, and they perfectly affect its prediction.
+
+Next, the testing set will be split into two parts to consider the size of the noise and the intervals of that size, as Machine Learning tools do not provide intervals.
+
+```{r}
+noise = error[1:75] # approximately 25% of 300 observations
+
+```
+
+We will be using a 95% confidence interval for prediction intervals:
+
+```{r}
+lwr = yhat[76:length(yhat)] + quantile(noise,0.025, na.rm=T)
+upr = yhat[76:length(yhat)] + quantile(noise,0.975, na.rm=T)
+
+```
+
+Performance using the last cases in yhat:
+
+```{r}
+predictions = data.frame(real=y[76:length(y)], fit=yhat[76:length(yhat)], lwr=lwr, upr=upr)
+
+predictions = predictions %>% mutate(out=factor(if_else(real<lwr | real>upr,1,0)))
+
+# how many real observations are out of the intervals?
+mean(predictions$out==1)
+
+```
+
+The actual observations that fall outside the specified interval are approximately 0% of the total observations.
+
+## Final remarks and conclusions
+
+The main objective of this study was to minimize the loss of information when making predictions. As we have seen throughout the descriptive analysis, the predictor variables had a low degree of correlation with the dependent variable "total_cases", and the latter had a left-skewed distribution.
+
+For the regression models, the variable "total_cases" has been predicted correctly through different models. The best selected model has been the Ensemble, considering the combination of three machine learning models: k-Nearest Neighbors, Random Forest, and XGBoost. Additionally, this model has the lowest chosen performance metric, with a Mean Absolute Error (MAE) of 6.6959, and other metrics such as the highest R-squared, 0.8044.
+
+Finally, the errors of this model are far from symmetric; in fact, they are skewed to the left, just like our dependent variable, and they perfectly affect its prediction. However, the actual observations do not fall outside the prediction intervals, so it is appropriate.
+
+## References
+
+- Benedum, C. M., Shea, K. M., Jenkins, H. E., Kim, L. Y., and Markuzon, N.
+(2020). Weekly dengue forecasts in Iquitos, Peru; San Juan, Puerto Rico; and
+Singapore. PLoS neglected tropical diseases vol. 14, nº 10, pp e0008710.
+
+- Kularatne, S. A. (2015). Dengue fever. Bmj, vol. 351.

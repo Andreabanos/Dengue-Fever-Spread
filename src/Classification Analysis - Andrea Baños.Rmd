@@ -1,0 +1,1013 @@
+---
+title: "Predicting the Spread of Dengue Fever in San Juan and Iquitos: An
+Investigative Analysis"
+author: "Andrea Baños"
+date: "2024-03-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Research question
+
+Dengue fever is an infectious disease transmitted by the Aedes aegypti mosquito,
+predominantly in areas with a tropical or subtropical climate. It has become an epidemic in more than 100 countries worldwide and manifests with hemorrhages, redness, fever, and general discomfort throughout the body (Kularatne, S. A. in 2015). In Peru and Puerto Rico, specifically in the areas of Iquitos and San Juan, which will be chosen for this study, this disease prevails practically throughout the year.
+
+The motivation for this study is that the spread of this disease is faster than researchers may realize, due to a high rate of asymptomatic individuals, international tourist travel to endemic areas, or the transportation of goods. Every year, approximately 50 million cases of dengue fever are detected worldwide. However, the issue with counting infected cases is that there will be many more due to the challenge of detecting those asymptomatic cases (Benedum, C. M., Shea, K. M., Jenkins, H. E., Kim, L. Y., and Markuzon, N. (2020)). The World Health Organization (WHO) estimates that there are approximately 2.5 billion people worldwide at risk of contagion and infection. Therefore, numerous techniques will be employed to try to predict the spread of dengue fever, in order to prevent high rates of contagion.
+
+# Load the main libraries
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(ggpubr)
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(caret)
+library(mice)
+library(cowplot)
+library(ggeffects)
+library(MASS)
+library(rpart)
+library(rpart.plot)
+library(pdp)
+library(lme4)
+library(olsrr)
+library(pROC)
+
+```
+
+# Data source
+
+The data for this study have been collected from DrivenData, a platform that organizes online competitions among users to shed light on issues affecting a significant portion of the global population in various social scenarios. It showcases predictive models that can be incorporated to address specific problems.
+
+The variables to be used in this analysis during the period from 1990 to 2010 are:
+
+- total_cases: It contains the number of dengue cases per city, year, and weekofyear.
+
+- city: It contains the study cities, in this case, “sj” for San Juan in Puerto Rico and “iq” for Iquitos in Peru.
+
+- year: It corresponds to the year of each observation.
+
+- weekofyear: It indicates the week of the year to which each observation corresponds.
+
+- week_start_date: Date in the format yyyy-mm-dd.
+
+- station_max_temp_c: It indicates the maximum temperature, measured in Celsius degrees.
+
+- station_min_temp_c: It indicates the minimum temperature, measured in Celsius degrees.
+
+- station_avg_temp_c: It indicates the average temperature, measured in Celsius degrees.
+
+- station_precip_mm: It contains the total precipitation, measured in cubic millimeters.
+
+- station_diur_temp_rng_c: It contains the diurnal temperature range, measured in Celsius degrees.
+
+- precipitation_amt_mm: Satellite measurement of total precipitation, measured in cubic millimeters.
+
+- reanalysis_sat_precip_amt_mm: Reanalysis of the total precipitation measurement, measured in cubic millimeters.
+
+- reanalysis_dew_point_temp_k: Reanalysis of the mean dew point temperature measurement, measured in Kelvin degrees.
+
+- reanalysis_air_temp_k: Reanalysis of the mean air temperature measurement, measured in Kelvin degrees.
+
+- reanalysis_relative_humidity_percent: Reanalysis of the mean relative humidity measurement, measured in percentage.
+
+- reanalysis_specific_humidity_g_per_kg: Reanalysis of the mean specific humidity measurement, measured in grams per kilogram.
+
+- reanalysis_precip_amt_kg_per_m2: Reanalysis of the total precipitation measurement, measured in kilograms per square meter.
+
+- reanalysis_max_air_temp_k: Reanalysis of the measurement of air maximum temperature, measured in Kelvin degrees.
+
+- reanalysis_min_air_temp_k: Reanalysis of the measurement of air minimum temperature, measured in Kelvin degrees.
+
+- reanalysis_avg_temp_k: Reanalysis of the measurement of air average temperature, measured in Kelvin degrees.
+
+- reanalysis_tdtr_k: Reanalysis of the measurement of diurnal temperature range, measured in Kelvin degrees.
+
+- ndvi_se: It measures the Normalized Difference Vegetation Index, containing the pixel southeast of the city's centroid.
+
+- ndvi_sw: It measures the Normalized Difference Vegetation Index, containing the pixel southwest of the city's centroid.
+
+- ndvi_ne: It measures the Normalized Difference Vegetation Index, containing the pixel northeast of the city's centroid.
+
+- ndvi_nw: It measures the Normalized Difference Vegetation Index, containing the pixel northwest of the city's centroid.
+
+
+## Data cleaning
+
+```{r}
+features_data <- read.csv("../data/dengue_features.csv")
+total_cases <- read.csv("../data/dengue_labels.csv")
+dengue_data <- left_join(total_cases, features_data)
+
+summary(dengue_data)
+dim(dengue_data)
+
+dengue_data %>%
+  count(total_cases)
+
+mode_total_cases <- dengue_data %>%
+  count(total_cases) %>%
+  filter(n == max(n)) %>%
+  pull(total_cases)
+
+mode_total_cases
+
+```
+
+The dimension of this dataset (dengue_data) contains 1456 observations and 25 variables (the majority of which are numeric, except for "city" and "week_start_date", which are character).
+
+## Descriptive Analysis
+
+```{r}
+dengue_data %>% ggplot(aes(x=total_cases)) +
+  geom_density(fill="pink") +
+  xlab("Dengue Fever cases in San Juan and Iquitos") +
+  theme_minimal() # high asymmetry
+
+ggplot(dengue_data, aes(x = year, y = total_cases, colour=city, size=station_max_temp_c)) + geom_point() +  
+  labs(title="Total cases of Dengue Fever over the years affected by maximum temperature", x="Year", y="Total cases of Dengue Fever", colour="City", size= "Maximum temperature") + 
+  theme_minimal() + theme(legend.position="bottom") # Total cases depending on city, year and station_max_temp_c
+
+ggplot(dengue_data, aes(x = year, y = total_cases, colour=city, size=station_precip_mm)) + geom_point() +  
+  labs(title="Total cases of Dengue Fever over the years affected by total precipitation in milimeters", x="Year", y="Total cases of Dengue Fever", colour="City", size= "Precipitation in milimeters") + 
+  theme_minimal() + theme(legend.position="bottom") # Total cases depending on city, year and total precipitation
+
+```
+
+The total number of dengue fever cases in San Juan and Iquitos usually does not exceed 100 cases per week, but there are outliers with a high number of cases (above 100) that skew this distribution to the left. Over the years, it can be observed that dengue fever cases have been decreasing in San Juan, while they seem to have slightly increased in Iquitos. In this case, maximum temperature does not appear to be a relevant factor affecting the total number of dengue fever cases. However, precipitation seems to be a significant factor, as higher precipitation (represented by larger dots) correlates with an increase in the total number of cases of dengue fever, particularly in Iquitos. This could be attributed to the possibility of it being an area with high precipitation, unlike San Juan, where the total precipitation remains relatively constant over the years.
+
+## Correlation between the dependent variable and predictors, and among the predictors
+
+```{r fig.width=9}
+ggcorr(dengue_data, label = T)
+
+```
+
+The predictors most correlated with the dependent variable are reanalysis_air_temp_k, reanalysis_min_air_temp_k, and station_min_temp_c positively, and negatively, reanalysis_tdtr_k. It can also be observed that some predictors are highly correlated with each other.
+
+```{r}
+# With the summary command, we have seen some asymmetries in the following variables
+bxp<-ggplot(dengue_data,mapping=aes(x=precipitation_amt_mm)) + 
+  geom_histogram(bins=15,fill="orange") + theme_minimal()
+dp<-ggplot(dengue_data,mapping=aes(x=reanalysis_precip_amt_kg_per_m2)) + 
+  geom_histogram(bins=15,fill="lightblue") + theme_minimal()
+db<-ggplot(dengue_data,mapping=aes(x=reanalysis_sat_precip_amt_mm)) + 
+  geom_histogram(bins=15,fill="yellow") + theme_minimal()
+ds<-ggplot(dengue_data,mapping=aes(x=station_precip_mm)) + 
+  geom_histogram(bins=15,fill="green") + theme_minimal()
+
+ggarrange(bxp,dp,db,ds,
+          ncol = 2, nrow = 2) # They are skewed to the left
+
+```
+
+# Feature engineering
+
+```{r}
+train_feature_data <- dengue_data %>% 
+  mutate(
+  lprecip_amt_mm = log(precipitation_amt_mm),
+  lrean_precip_amt_kg_per_m2 = log(reanalysis_precip_amt_kg_per_m2),
+  lrean_sat_precip_amt_mm = log(reanalysis_sat_precip_amt_mm),
+  lstation_precip_mm = log(station_precip_mm),
+  diurnal_temp_range = station_max_temp_c - station_min_temp_c,
+  ndvi_mean = rowMeans(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw),
+                       na.rm = TRUE),
+    ndvi_median = apply(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw), 1, median,
+                        na.rm = TRUE),
+    ndvi_sd = apply(dplyr::select(., ndvi_se, ndvi_sw, ndvi_ne, ndvi_nw), 1, sd,
+                    na.rm = TRUE),
+  accumulated_precipitation = rowSums(dplyr::select(., station_precip_mm, 
+                                             precipitation_amt_mm,
+                                             reanalysis_sat_precip_amt_mm),
+                                      na.rm = TRUE),
+  avg_daily_temp = (station_max_temp_c + station_min_temp_c +
+                                 station_avg_temp_c)/3,
+  precip_ratio = station_precip_mm/weekofyear,
+  humid_ratio = reanalysis_relative_humidity_percent/
+    reanalysis_specific_humidity_g_per_kg,
+  all_temp_interact = station_max_temp_c * station_min_temp_c *
+    station_avg_temp_c,
+  avg_temp_precip_interact = station_avg_temp_c * station_precip_mm,
+  ndvi_temp_interact = (ndvi_se + ndvi_sw + ndvi_ne + ndvi_nw) *
+    station_avg_temp_c,
+  ndvi_precip_interact = (ndvi_se + ndvi_sw + ndvi_ne + ndvi_nw) *
+    station_precip_mm,
+  reanalysis_dew_point_temp_c = reanalysis_dew_point_temp_k - 273.15,
+  reanalysis_air_temp_c = reanalysis_air_temp_k - 273.15,
+  reanalysis_max_air_temp_c = reanalysis_max_air_temp_k - 273.15,
+  reanalysis_min_air_temp_c = reanalysis_min_air_temp_k - 273.15,
+  reanalysis_avg_temp_c = reanalysis_avg_temp_k - 273.15,
+  reanalysis_tdtr_c = reanalysis_tdtr_k - 273.15,
+  week_start_date = as.Date(week_start_date),
+  month = format(week_start_date, "%m"),
+  day_of_week = case_when(
+     weekdays(week_start_date) == "lunes" ~ "Monday",
+     weekdays(week_start_date) == "martes" ~ "Tuesday",
+     weekdays(week_start_date) == "miércoles" ~ "Wednesday",
+     weekdays(week_start_date) == "jueves" ~ "Thursday",
+     weekdays(week_start_date) == "viernes" ~ "Friday",
+     weekdays(week_start_date) == "sábado" ~ "Saturday",
+     weekdays(week_start_date) == "domingo" ~ "Sunday"
+    ),
+  season = case_when(
+     month %in% c("12", "01", "02") ~ "Winter",
+     month %in% c("03", "04", "05") ~ "Spring",
+     month %in% c("06", "07", "08") ~ "Summer",
+     TRUE ~ "Autumn"
+    )
+)
+
+train_feature_data <- train_feature_data %>% 
+  dplyr::select(-c(reanalysis_dew_point_temp_k, reanalysis_air_temp_k,
+            reanalysis_max_air_temp_k, reanalysis_min_air_temp_k,
+            reanalysis_avg_temp_k, reanalysis_tdtr_k))
+
+train_feature_data[train_feature_data == -Inf] <- 0
+
+sum(is.na(train_feature_data)) # 1336 NA's
+
+colSums(is.na(train_feature_data))
+
+```
+
+## Country-level variable aggregation
+
+```{r}
+severe_cases <- read_xlsx("../other/Severe dengue cases, suspects and death.xlsx")
+severe_cases <- severe_cases %>% 
+  rename(variables = ...2) %>% 
+  rename(year = ...1) %>% 
+  filter(variables != "Casos Sospechosos") %>% 
+  dplyr::select(-Total)
+
+severe_cases <- severe_cases %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+severe_cases <- severe_cases %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+severe_cases <- severe_cases %>% 
+  rename(`Total Casos Dengue` = `Total Casos`)
+
+
+serotypes <- read_xlsx("../other/Serotypes.xlsx")
+serotypes <- serotypes %>% 
+  rename(country = Pais) %>% 
+  rename(year = Año) %>% 
+  rename(serotype = ...3) %>% 
+  filter(year < 2014 | year > 2024)  
+
+
+lethality <- read_xlsx("../other/Lethality.xlsx")
+lethality <- lethality %>% 
+  rename(variables = ...2) %>% 
+  rename(year = ...1)
+
+lethality <- lethality %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+lethality <- lethality %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+
+incidence <- read_xlsx("../other/Incidence.xlsx")
+
+incidence <- incidence %>% 
+  rename(variables = ...2)
+
+incidence <- incidence %>%
+  pivot_longer(cols = c(Perú, `Puerto Rico`),
+               names_to = "country",
+               values_to = "value")
+
+incidence <- incidence %>%
+  pivot_wider(names_from = variables,
+              values_from = value)
+
+incidence <- incidence %>% 
+  rename(`Total Casos Dengue` = `Total de Casos de Dengue`)
+
+# Joining all the country-level variables
+aggregated_variables <- left_join(lethality, incidence, by = c("country", "year", "Total Casos Dengue"))
+aggregated_variables <- left_join(aggregated_variables, severe_cases, by = c("country", "year"))
+aggregated_variables <- aggregated_variables %>% 
+  dplyr::select(-`Total Casos Dengue.x`) %>% 
+  rename(`Total Casos Dengue` = `Total Casos Dengue.y`) %>% 
+  dplyr::select(-Muertes.y) %>% 
+  rename(Muertes = Muertes.x)
+
+aggregated_variables <- left_join(aggregated_variables, serotypes, by = c("country", "year"))
+
+aggregated_variables <- aggregated_variables %>% 
+  rename(deaths = Muertes) %>% 
+  rename(lethality = `Letalidad (Porcentaje)`) %>% 
+  rename(population = Población) %>% 
+  rename(incidence = `Incidencia por 100,000 hab.`) %>% 
+  rename(severe_cases = `Dengue Grave`) %>% 
+  rename(total_dengue_cases = `Total Casos Dengue`)
+
+# Creating the final data frame
+train_feature_data <- train_feature_data %>%
+  mutate(country = ifelse(city == "sj", "Puerto Rico", ifelse(city == "iq", "Perú", NA)), .before = city)
+
+dengue <- left_join(train_feature_data, aggregated_variables, by = c("country", "year"))
+
+```
+
+## Hierarchical model
+
+```{r}
+hierarchical_model <- lmer(total_cases ~ . + (1 | country), data = dengue)
+
+summary(hierarchical_model)
+
+```
+
+The random effects of this model are grouped into 2 countries of the Central and South America, with a variance of 53.57 and a standard deviation of 7.319, indicating that there is significant variability between countries. Therefore, the country effect on the response variable “total_cases” should be taken into account for the analysis. Moreover, the remaining predictor variables that are fixed effects and contribute to raising the infection rate have a positive coefficient.
+
+On the other hand, predictor variables that do not contribute to increase the infection rate have a negative coefficient.
+
+## Multiple Imputation of NA's
+
+```{r}
+colSums(is.na(dengue)) # 246 NA's in ndvi_temp_interact feature
+
+data_imputed <- data.frame(
+  city = dengue$city,
+  original = dengue$ndvi_temp_interact,
+  imputed_median = replace(dengue$ndvi_temp_interact,
+                           is.na(dengue$ndvi_temp_interact),
+                           median(dengue$ndvi_temp_interact, na.rm = TRUE)),
+  imputed_normboot = complete(mice(dengue, m=10, method = "norm.boot",
+                                   seed=123))$ndvi_temp_interact,
+  imputed_pmm = complete(mice(dengue, m=10, method = "pmm",
+                              seed=123))$ndvi_temp_interact,
+  imputed_rf = complete(mice(dengue, m=10, method = "rf",
+                             seed=123))$ndvi_temp_interact
+  )
+
+variables <- c("original", "imputed_median", "imputed_normboot", "imputed_pmm", "imputed_rf")
+titles <- c("Distribution of the ndvi_temp_interact variable", "Median-imputed Distribution", "Norm Boot-imputed Distribution", "PMM-imputed Distribution", "Random Forest-imputed Distribution")
+colors <- c("skyblue", "orchid", "aquamarine", "coral", "hotpink")
+
+# An empty plot list for the new plots
+plots <- list()
+
+# Loop through variables to create plots for each imputation method
+for (i in 1:length(variables)) {
+  plots[[i]] <- ggplot(data_imputed, aes_string(x = variables[i])) +
+    geom_histogram(binwidth = 1, fill = colors[i], color = paste0(colors[i], "3")) + 
+    ggtitle(titles[i]) +
+    theme_classic()
+}
+
+plot_grid(plotlist = plots, nrow = 3, ncol = 2)
+
+init = mice(dengue)
+meth = init$method
+
+meth[c("total_cases")]="" 
+
+# It's more closer the norm boot imputation to the most NA's in the original variable but it has a lot of NA's. Therefore, it will be used Random Forest imputation:
+
+meth[c("ndvi_ne", "ndvi_nw", "ndvi_se", "ndvi_sw", "precipitation_amt_mm", "reanalysis_precip_amt_kg_per_m2", "reanalysis_relative_humidity_percent", "reanalysis_sat_precip_amt_mm", "reanalysis_specific_humidity_g_per_kg", "station_avg_temp_c", "station_diur_temp_rng_c", "station_max_temp_c", "station_min_temp_c", "station_precip_mm", "diurnal_temp_range", "ndvi_mean", "ndvi_median", "ndvi_sd", "avg_daily_temp", "precip_ratio", "humid_ratio", "all_temp_interact", "avg_temp_precip_interact", "ndvi_temp_interact", "ndvi_precip_interact", "reanalysis_dew_point_temp_c", "reanalysis_air_temp_c", "reanalysis_max_air_temp_c", "reanalysis_min_air_temp_c", "reanalysis_avg_temp_c", "reanalysis_tdtr_c", "serotype")]="rf"
+
+imputed_rf = mice(dengue, method=meth, m=10, seed=123)
+
+summary(imputed_rf)
+
+dengue <- complete(imputed_rf)
+
+```
+
+# Feature selection
+
+```{r}
+# Due to the presence of NA's in serotype feature
+sum(is.na(dengue)) # 256 NA's
+colSums(is.na(dengue)) # 243 NA's in serotype and 13 NA's in reanalysis_sat_precip_amt_mm feature
+
+dengue <- na.omit(dengue)
+dengue <- dengue %>% dplyr::select(-total_dengue_cases)
+
+dengue <- dengue %>%  
+  mutate(city_num = case_when(
+    city == "sj" ~ 1,
+    city == "iq" ~ 0
+  ))
+  
+dengue <- dengue %>%  
+  mutate(country_num = case_when(
+    country == "Puerto Rico" ~ 1,
+    country == "Perú" ~ 0
+  ))
+
+dengue <- dengue %>%  
+  mutate(day_of_week_num = case_when(
+    day_of_week == "Monday" ~ 1,
+    day_of_week == "Tuesday" ~ 2,
+    day_of_week == "Wednesday" ~ 3,
+    day_of_week == "Thursday" ~ 4,
+    day_of_week == "Friday" ~ 5,
+    day_of_week == "Saturday" ~ 6,
+    day_of_week == "Sunday" ~ 7,
+  ))
+
+dengue <- dengue %>%  
+  mutate(season_num = case_when(
+    season == "Spring" ~ 1,
+    season == "Summer" ~ 2,
+    season == "Autumn" ~ 3,
+    season == "Winter" ~ 4
+  ))
+
+numeric_cols <- dengue[, sapply(dengue, is.numeric) & names(dengue) != "total_cases"]
+
+x <- scale(numeric_cols)
+x <- x[, -findCorrelation(cor(x), .85)] # This technique only takes into account numeric variables
+x <- as.data.frame(x, stringsAsFactors = TRUE)
+
+set.seed(1234)
+rfe_results <- rfe(x, dengue$total_cases,
+                 sizes = c(2:10, 15, 20, 25, 30, 35, 40, 43),
+                 rfeControl = rfeControl(functions = lmFuncs, number = 200))
+rfe_results
+
+optimal_features <- rfe_results$optsize
+best_features <- predictors(rfe_results, optimal_features)
+best_features
+
+```
+
+
+# Classification - Interpretation
+
+First of all, the high infection rate will be defined, taking into account the total number of dengue cases above the average.
+
+```{r}
+summary(dengue$total_cases)
+dengue$high_infection = factor(dengue$total_cases>18) # Above 24 taking both cities into account
+
+prop.table(table(dengue$high_infection)) # Low infection rate in the dataset
+
+dengue %>% 
+  ggplot(aes(high_infection, fill = high_infection)) +
+  geom_density(color = NA, alpha = .8) + theme_minimal()
+
+```
+
+It indicates a low infection rate in the dataset, approximately 28% infected.
+
+```{r}
+ggplot(dengue, aes(x = serotype, y = total_cases)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(x = "Serotype", y = "Total Dengue Cases", title = "Total Dengue Cases by Serotype") +
+  theme_minimal()
+
+ggplot(dengue, aes(x = year, y = serotype, colour=city, size=total_cases)) + geom_point() +  
+  labs(title="Serotypes of Dengue Fever over the years affected by total cases", x="Year", y="Serotypes of Dengue Fever", colour="City", size= "Total Cases of Dengue") + 
+  theme_minimal() + theme(legend.position="bottom") # Serotypes depending on city, year and total cases of Dengue Fever
+
+ggplot(dengue, aes(x = year, y = serotype, colour=city, size=high_infection)) + geom_point() +  
+  labs(title="Serotypes of Dengue Fever over the years affected by High Infection Rate", x="Year", y="Serotypes of Dengue Fever", colour="City", size= "High Infection Rate") + 
+  theme_minimal() + theme(legend.position="bottom") # Serotypes depending on city, year and High Infection Rate of Dengue Fever
+
+```
+
+
+## Data splitting
+
+```{r}
+set.seed(1234)
+
+dengue_data_classification <- dengue %>% 
+  dplyr::select(-total_cases)
+  
+ind_train <- createDataPartition(dengue_data_classification$high_infection, p = 0.75, list = FALSE)
+training <- dengue_data_classification[ ind_train,]
+testing <- dengue_data_classification[-ind_train,]
+nrow(training) # 904 observations
+nrow(testing) # 301 observations
+
+```
+
+## Probabilistic Classifiers
+
+In this section, the logistic regression model will be considered, as it is responsible for predicting the probability of an observation belonging to either class 0 or 1.
+
+### Logistic Regression
+
+```{r}
+training <- training %>%
+  dplyr::select(-week_start_date)
+
+lb_model <- glm(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, family=binomial(link='logit'), data=training)
+summary(lb_model)
+
+exp(coef(lb_model))
+
+```
+
+Most of the coefficients of this model are significant, except for "station_max_temp_c", "diurnal_temp_range", "station_min_temp_c" and "all_temp_interact". Furthermore, the Akaike criterion is 807.54 and it will take into account to compare this criterion with the rest of the models.
+
+The features selected through the Recursive Feature Elimination (RFE) method, aiming to eliminate multicollinearity among predictors, have been those of the continuous variable (total_cases), because using high_infection causes an error (since it is not a method used for binary variables (0,1)):
+Aviso en model.response(mf, "numeric") :
+  using type = "numeric" with a factor response will be ignored
+Aviso en Ops.factor(y, z$residuals) :
+  ‘-’ no es significativo para factores
+
+# Classification - Predictive Analysis
+
+Predictive Analysis:
+
+```{r}
+gg.pred = ggpredict(lb_model, terms = "season_num")
+plot(gg.pred)
+
+gg.pred = ggpredict(lb_model, terms = c("season_num", "reanalysis_relative_humidity_percent", "diurnal_temp_range"))
+plot(gg.pred, ci=F)
+
+bench.model = glm(high_infection ~ 1, family=binomial(link='logit'), data=training)
+probability = predict(bench.model, newdata=testing, type="response")
+head(probability)
+
+prediction = as.factor(ifelse(probability > 0.3, "TRUE", "FALSE"))
+levels(prediction) = c("FALSE", "TRUE")
+head(prediction)
+
+confusionMatrix(prediction, testing$high_infection)$table
+
+```
+
+This logistic model is not good, as it only predicts negative cases (non-infected).
+
+Predictions are posterior probabilities:
+
+```{r}
+probability <- predict(lb_model, newdata=testing, type='response')
+head(probability)
+
+prediction <- as.factor(ifelse(probability > 0.3, TRUE, FALSE))
+head(prediction)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+As observed, the logistic model now predicts both positive and negative infection cases, yielding 16 false negatives and 74 false positives cases. The accuracy is very high at 0.7009, and the kappa value is 0.3907, indicating a moderate level of agreement between the model predictions and the actual values.
+
+## Bayes Classifiers
+
+In this section, Linear Discriminant Analysis (LDA) will be considered, as it fits the distribution of predictor variables and calculates the probability of each observation belonging to class 0 or 1.
+
+### LDA
+
+```{r}
+lda.model <- lda(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, data=training)
+lda.model
+
+```
+
+It can be observed that the majority of the variables are well balanced between the two classes False and True, except for high_infection. The coefficients of linear discriminants reflect that an increase in that predictor variable may increase the probability of belonging to the high infection category (TRUE) if they are positive, such as "station_min_temp_c". However, if the coefficients are negative, as for the variable "reanalysis_avg_temp_c", an increase in this variable reduces the probability of belonging to the high infection category.
+
+LDA estimates the posterior probabilities using the Bayes Theorem:
+
+```{r}
+probability = predict(lda.model, newdata=testing)$posterior
+head(probability)
+
+prediction = predict(lda.model, newdata=testing)$class
+head(prediction)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+This model seems quite good as it predicts both positive and negative infection cases, with an accuracy of 0.8139 and a kappa value of 0.5473.
+
+### Cross-validation
+
+In order to apply cross-validation, it has been selected some variables that are not highly correlated to avoid multicollinearity, which can negatively affect the models' performance.
+
+Control function:
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 10, # 10-fold
+                     classProbs = T,
+                     summaryFunction=twoClassSummary,
+                     verboseIter = T)
+
+levels(training$high_infection)=c("No","Yes")
+levels(testing$high_infection)=c("No","Yes")
+
+```
+
+Train function (trying to mitigate the overfitting by regularization):
+
+```{r}
+# A grid for the hyper-parameters
+param_grid = expand.grid(gamma = seq(0, 1, 0.1), lambda = seq(0.1, 0.9, 0.1))
+
+# Train to maximize AUC: metric="ROC"
+lda_trm <- train(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, 
+                method ="rda", 
+                data = training,
+                tuneGrid = param_grid,
+                preProcess = c("center", "scale"),
+                metric="ROC",
+                trControl = ctrl)
+print(lda_trm)
+
+# Predict and validate
+lda_pred = predict(lda_trm, testing)
+confusionMatrix(lda_pred, testing$high_infection)
+
+```
+
+gamma of 0.1, lambda of 0.3, ROC curve with the highest value of 0.8312507, sensitivity of 0.7601442, and specificity of 0.7436923. Finally, the accuracy is 0.7641.
+
+Accuracy is around 76%, but high number of false positives. Therefore, the threshold will be increased because fewer observations will be classified as positive, reducing the false positive rate and potentially increasing the false negative rate. This is useful in the context of dengue spread where false positives are more costly.
+
+```{r}
+threshold = 0.6
+ldaProb = predict(lda_trm, testing, type="prob")
+prediction <- as.factor(ifelse(ldaProb[,2] > threshold, "Yes", "No"))
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+Accuracy increases to 79%, and errors a bit better balanced.
+
+Variable importance:
+
+```{r}
+lda_imp <- varImp(lda_trm, scale = F)
+plot(lda_imp, scales = list(y = list(cex = .95)))
+
+```
+
+Partial dependence plots:
+
+```{r}
+partial(lda_trm, pred.var = "diurnal_temp_range", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(lda_trm, pred.var = "station_min_temp_c", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(lda_trm, pred.var = "season_num", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+
+```
+
+The only variable that behaves linearly is "season_num".
+
+The ROC Curve shows true positives vs false positives in relation with different thresholds:
+
+- y-axis = Sensitivity (TP)
+- x-axis = Specificity (1-FP)
+
+```{r}
+bench.model = glm(high_infection ~ 1, family=binomial(link='logit'), data=training)
+prob.bench = predict(bench.model, newdata=testing, type="response")
+
+roc.lda=roc(testing$high_infection ~ ldaProb[,2])
+roc.bench=roc(testing$high_infection ~ prob.bench)
+
+plot(roc.lda, col="red",print.thres=TRUE)
+plot(roc.bench, add=TRUE, col='green',print.thres=TRUE)
+legend("bottomright", legend=c("lda", "bench"), col=c("red",  "green"), lwd=2)
+
+roc.lda$auc
+roc.bench$auc
+
+```
+
+AUC = Area Under the Curve: around 0.8378, the larger the better.
+
+## Machine Learning
+
+### k-Nearest Neighbors
+
+This machine learning model attempts to classify data by assigning the most common label among its k nearest neighbors.
+
+```{r}
+knn.model <- train(high_infection ~ ., 
+                  data = training,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10,
+                  metric="ROC",
+                  trControl = ctrl)
+plot(knn.model)
+
+knnProb = predict(knn.model, testing, type="prob")
+prediction <- as.factor(ifelse(knnProb[,2] > 0.3, "Yes", "No"))
+
+testing <- testing[1:length(prediction), ]
+length(prediction)
+length(testing$high_infection)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+The maximum number of nearest neighbors is 11 with a distance of 2. The confusion matrix appears to be fairly balanced, indicating that it predicts a higher number of true negative cases. The accuracy is somewhat higher than for the previous models, at 0.8504, and a kappa value of 0.6631, suggesting that this model predicts the number of infected cases slightly better.
+
+```{r}
+#library(shapr)
+
+#w <- training %>% dplyr::select(-high_infection)
+#y <- training %>% dplyr::select(high_infection)
+
+#shapr(w, knn.model)
+
+```
+
+The proof does not work.
+
+```{r}
+knn_model <- train(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, 
+                  data = training,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10,
+                  metric="ROC",
+                  trControl = ctrl)
+plot(knn_model)
+
+knnProb = predict(knn_model, testing, type="prob")
+prediction <- as.factor(ifelse(knnProb[,2] > 0.3, "Yes", "No"))
+
+testing <- testing[1:length(prediction), ]
+length(prediction)
+length(testing$high_infection)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+Lower accuracy of 0.7641196, a kappa value of 0.4944049, and more false than true cases. kmax is 23 and a distance of 2. Therefore, including RFE in ML models is not the best approach.
+
+### Decision Trees
+
+This machine learning model generates a decision tree and divides the features into different regions, assigning a label to each region. In order to make predictions, the tree traverses from the root to the leaf, following the splitting decisions, and the label associated with the final leaf is assigned as the prediction.
+
+```{r}
+control = rpart.control(minsplit = 30, maxdepth = 10, cp=0.01)
+
+```
+
+The minimum number of observations in a node before a split will be 30. The maximum depth of any node of the final tree will be 10, and the degree of complexity, the smaller (0.01) the more branches.
+
+```{r}
+dt.model = high_infection ~ .
+dtFit <- rpart(dt.model, data=training, method = "class", control = control)
+summary(dtFit)
+
+# population + lethality + month + deaths + season + year + weekofyear + city + country + reanalysis_specific_humidity_g_per_kg + severe_cases + day_of_week + humid_ratio + reanalysis_dew_point_temp_c + season_num + serotype + avg_daily_temp + station_avg_temp_c + station_min_temp_c + all_temp_interact + station_max_temp_c + ndvi_precip_interact
+
+# With the combination of RFE: reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num -> the accuracy is worse than including all the data
+
+```
+
+This decision tree model has generated a tree with 14 partitions, with an optimal complexity parameter (CP) of 0.01, indicating that the model is less complex. Additionally, the most important variables for predicting "high_infection" are "population", "lethality", "month","deaths", "season", "year", "weekofyear", "city", "country", "reanalysis_specific_humidity_g_per_kg", "severe_cases", "day_of_week", "humid_ratio", "reanalysis_dew_point_temp_c", "season_num", "serotype", "avg_daily_temp", "station_avg_temp_c", "station_min_temp_c", "all_temp_interact", "station_max_temp_c" and "ndvi_precip_interact" significantly contributing to the model's prediction.
+
+This can be visualized as follows:
+
+```{r fig.width=9}
+rpart.plot(dtFit, digits=3)
+
+```
+
+Predictions:
+
+```{r}
+dtPred <- predict(dtFit, testing, type = "class")
+
+dtProb <- predict(dtFit, testing, type = "prob")
+
+prediction <- as.factor(ifelse(dtProb[,2] > 0.3, "Yes", "No"))
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+This decision tree model correctly predicts "high_infection", as its accuracy is 0.8571 and its kappa value is 0.64378. Moreover, in the confusion matrix, the number of true predicted cases (both positive and negative) is much higher than the number of false predicted cases.
+
+Now, caret will be used to see if the performance of this model changes:
+
+```{r}
+caret.fit <- train(dt.model, 
+                   data = training, 
+                   method = "rpart",
+                   control=rpart.control(minsplit = 14, maxdepth = 20),
+                   trControl = ctrl,
+                   tuneLength=10)
+caret.fit
+
+```
+
+The optimal complexity parameter (CP) would be 0.001937984 (indicating a high level of agreement between the model predictions and the actual values) with an ROC curve of 0.8714638, a sensitivity of 0.8979567, indicating that this model almost perfectly predicts positive cases, and a specificity of 0.6981538, indicating that it correctly predicts a wide number of negative cases.
+
+Another visualization plot:
+
+```{r}
+rpart.plot(caret.fit$finalModel)
+
+```
+
+In order to see the posterior probabilities:
+
+```{r}
+dtProb <- predict(caret.fit, testing, type = "prob")
+
+prediction <- as.factor(ifelse(dtProb[,2] > 0.3, "Yes", "No"))
+
+testing <- testing[1:length(prediction), ]
+length(prediction)
+length(testing$high_infection)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+Therefore, we can conclude that decision trees are not the most suitable model (with caret) for predicting "high_infection". In the confusion matrix, the number of false predicted cases has increased, while the number of true predicted cases has decreased, using caret. Thus, the accuracy now stands at 0.8205, and the kappa value is 0.5604, indicating a moderate level of agreement between the model predictions and the actual values.
+
+### Random Forest
+
+The Random Forest model is a random learning model that constructs multiple decision trees during the training process and combines their predictions to obtain a more accurate final prediction.
+
+```{r}
+rf.model <- train(high_infection ~ ., 
+                  data = training,
+                  method = "rf",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10,
+                  metric="ROC",
+                  trControl = ctrl)
+plot(rf.model)
+
+rfProb = predict(rf.model, testing, type="prob")
+prediction <- as.factor(ifelse(rfProb[,2] > 0.3, "Yes", "No"))
+
+testing <- testing[1:length(prediction), ]
+length(prediction)
+length(testing$high_infection)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+The number of predictors randomly selected at each split of a tree in the forest is 63. On the other hand, the confusion matrix appears to be fairly balanced, but the accuracy value is 0.8471761, with a kappa value of 0.6406250, indicating that it is a good model for predicting high infection rate.
+
+Variable importance:
+
+```{r fig.height=14, fig.width=9}
+rf_imp <- varImp(rf.model, scale = F)
+plot(rf_imp, scales = list(y = list(cex = .95)))
+
+```
+
+The most important variables for predicting "high_infection" are clearly "year" and "weekofyear", as advancements in vaccines and medicine have significantly increased over the years. Additionally, "season_num", "reanalysis_min_air_temp_c", "reanalysis_tdtr_c", "humid_ratio" and "severe_cases" appear to be relevant variables for predicting the high infection rate. However, the variable that seems to be least important is the size of the population; whether individuals are in cities or countries with different population does not appear to be a relevant factor contributing to the prediction.
+
+In order to examine the marginal effects of the relevant variables for this model, it's important to note that their contributions are non-linear. This is due to the model's integration of both linear and quadratic components.
+
+```{r}
+partial(rf.model, pred.var = "year", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "weekofyear", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "season_num", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "reanalysis_min_air_temp_c", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "reanalysis_tdtr_c", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "humid_ratio", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rf.model, pred.var = "severe_cases", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+
+```
+
+The marginal effect of the variable "year" at the beginning of the 1990s was high, peaking around 1998. However, from the 2000s onward, the marginal effect of the "year" variable on the dependent variable "high_infection" is very small, likely because over time, this high infection rate may have reduced, as observed in the descriptive analysis. Conversely, "weekofyear" behaves differently. If the week of year is between 10 and 20, the marginal effect is very small, but if it increases to over 30, the marginal effect on the high infection rate is very significant.
+
+```{r}
+rf_model <- train(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, 
+                  data = training,
+                  method = "rf",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10,
+                  metric="ROC",
+                  trControl = ctrl)
+plot(rf_model)
+
+rfProb = predict(rf_model, testing, type="prob")
+prediction <- as.factor(ifelse(rfProb[,2] > 0.3, "Yes", "No"))
+
+testing <- testing[1:length(prediction), ]
+length(prediction)
+length(testing$high_infection)
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+The number of predictors randomly selected at each split of a tree in the forest is 6, accuracy of 0.78 and a kappa value of 0.53. It is worse than including all the predictors.
+
+### Gradient Boosting
+
+Gradient Boosting is a machine learning model that constructs weak prediction models, such as decision trees, sequentially, where each new model attempts to correct the errors of the previous model.
+
+```{r}
+ctrl$verboseIter=F
+
+gbm.model <- train(high_infection ~ ., 
+                  data = training,
+                  method = "xgbTree",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10,
+                  metric="ROC",
+                  trControl = ctrl)
+plot(gbm.model)
+
+gbmProb = predict(gbm.model, testing, type="prob")
+prediction <- as.factor(ifelse(gbmProb[,2] > 0.3, "Yes", "No"))
+
+confusionMatrix(prediction, testing$high_infection)$table
+confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+Accuracy of 0.8704319, a kappa value of 0.6814469, and less false cases than true cases (20+19 vs 196+66). Therefore, it seems that it is the best model to predict the high infection rate.
+
+Variable importance and partial dependence plots:
+
+```{r fig.height=14, fig.width=9}
+gbm_imp <- varImp(gbm.model, scale = F)
+plot(gbm_imp, scales = list(y = list(cex = .95)))
+
+partial(gbm.model, pred.var = "weekofyear", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(gbm.model, pred.var = "year", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(gbm.model, pred.var = "reanalysis_specific_humidity_g_per_kg", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(gbm.model, pred.var = "season_num", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+
+```
+
+No linear relation in these seleted features.
+
+```{r}
+#ctrl$verboseIter=F
+
+#gbm_model <- train(high_infection ~ reanalysis_dew_point_temp_c + reanalysis_relative_humidity_percent + reanalysis_avg_temp_c + station_max_temp_c + diurnal_temp_range + severe_cases + station_min_temp_c + all_temp_interact + season_num, 
+                  #data = training,
+                  #method = "xgbTree",   
+                  #preProc=c('scale','center'),
+                  #tuneLength = 10,
+                  #metric="ROC",
+                  #trControl = ctrl)
+#plot(gbm_model)
+
+#gbmProb = predict(gbm_model, testing, type="prob")
+#prediction <- as.factor(ifelse(gbmProb[,2] > 0.3, "Yes", "No"))
+
+#confusionMatrix(prediction, testing$high_infection)$table
+#confusionMatrix(prediction, testing$high_infection)$overall[1:2]
+
+```
+
+          Reference
+Prediction  No Yes
+       No  182  21
+       Yes  33  65
+       
+Accuracy    Kappa 
+0.820598 0.578125
+
+## Final remarks and conclusions
+
+The main objective of this study was to minimize the loss of information when making predictions. As we have seen throughout the descriptive analysis, the predictor variables had a low degree of correlation with the dependent variable "total_cases", and the latter had a left-skewed distribution.
+
+For the classification models, the variable "high_infection" has been predicted correctly through different models, with the Gradient Boosting model, it has achieved an accuracy of 0.86378, a kappa value of 0.672, and a well-balanced confusion matrix, including 192 true positive cases, 68 true negative cases, 18 false negative cases, and 23 false positive cases. The most important variables for predicting "high_infection" were "year", "season_num", "weekofyear" and "humid_ratio", significantly contributing to the model's prediction.
+
+Finally, it has been proven that the RFE technique is not very useful for Machine Learning (ML) models, as they are black-box models that select the importance of the variables themselves and approximate the prediction of the dependent variable, in this case, high_infection, as accurately as possible. However, for probabilistic and Bayesian classifiers, the RFE technique is very useful, as it helps avoid multicollinearity in the classifier models and other errors that may arise during training.
+
+## References
+
+- Benedum, C. M., Shea, K. M., Jenkins, H. E., Kim, L. Y., and Markuzon, N.
+(2020). Weekly dengue forecasts in Iquitos, Peru; San Juan, Puerto Rico; and
+Singapore. PLoS neglected tropical diseases vol. 14, nº 10, pp e0008710.
+
+- Kularatne, S. A. (2015). Dengue fever. Bmj, vol. 351.
