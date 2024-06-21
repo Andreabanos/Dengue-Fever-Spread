@@ -458,7 +458,7 @@ First of all, the high infection rate will be defined, taking into account the t
 
 ```{r}
 summary(dengue$total_cases)
-dengue$high_infection = factor(dengue$total_cases>18) # Above 24 taking both cities into account
+dengue$high_infection = factor(dengue$total_cases>18) # Above 18 taking both cities into account
 
 prop.table(table(dengue$high_infection)) # Low infection rate in the dataset
 
